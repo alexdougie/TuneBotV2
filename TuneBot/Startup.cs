@@ -2,6 +2,7 @@
 using Discord.WebSocket;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SpotifyAPI.Web;
@@ -22,7 +23,7 @@ namespace TuneBot
             Configuration = builder.Build();
         }
 
-        public IConfigurationRoot Configuration { get; }
+        public IConfiguration Configuration { get; }
 
         public static async Task RunAsync(string[] args)
         {
@@ -41,6 +42,15 @@ namespace TuneBot
             provider.GetRequiredService<CommandHandler>();
 
             await provider.GetRequiredService<StartupService>().StartAsync();
+
+            using(var connection = new SqliteConnection("Data Source=data.db"))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = "CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, lastfm_name TEXT)";
+
+                command.ExecuteNonQuery();
+            }
 
             await Task.Delay(-1);
         }

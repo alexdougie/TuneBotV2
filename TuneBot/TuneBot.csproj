@@ -8,6 +8,8 @@
   <ItemGroup>
     <PackageReference Include="Discord.Net" Version="2.2.0" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.45.0.1929" />
+    <PackageReference Include="Inflatable.Lastfm" Version="1.1.0.339" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="3.1.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="3.1.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="3.1.4" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="3.1.4" />

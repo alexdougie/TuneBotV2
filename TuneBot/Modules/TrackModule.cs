@@ -1,7 +1,8 @@
 ﻿#nullable enable
 using Discord.Commands;
-using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
+using IF.Lastfm.Core.Api;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using SpotifyAPI.Web;
 using SpotifyAPI.Web.Enums;
@@ -13,15 +14,15 @@ namespace TuneBot.Modules
 {
     public class TrackModule : ModuleBase<SocketCommandContext>
     {
-        private readonly IConfigurationRoot config;
         private readonly SpotifyWebAPI spotify;
         private readonly YouTubeService youtube;
+        private readonly IConfiguration config;
 
-        public TrackModule(IConfigurationRoot config, SpotifyWebAPI spotify, YouTubeService youtubeService)
+        public TrackModule(SpotifyWebAPI spotify, YouTubeService youtube, IConfiguration config)
         {
-            this.config = config;
             this.spotify = spotify;
-            this.youtube = youtubeService;
+            this.youtube = youtube;
+            this.config = config;
         }
 
         [Command("track")]
@@ -64,6 +65,78 @@ namespace TuneBot.Modules
             }
 
             await ReplyAsync(result);
+        }
+
+        [Command("npset")]
+        [Summary("Sets your Last.fm username. Must be done before !np can be used.")]
+        public async Task NowPlayingSet([Remainder] string userName)
+        {
+            var userId = Context.User.Id;
+
+            using (var connection = new SqliteConnection("Data Source=data.db"))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = "INSERT OR REPLACE INTO users(id, lastfm_name) VALUES($id,$lastfm_name)";
+                command.Parameters.AddWithValue("$id", userId);
+                command.Parameters.AddWithValue("$lastfm_name", userName);
+
+                command.ExecuteNonQuery();
+            }
+        }
+
+        [Command("np")]
+        [Summary("Gets current/last scrobbled track from Last.fm.")]
+        public async Task NowPlaying()
+        {
+            var userId = Context.User.Id;
+
+            string? lastFmUserName = null;
+
+            using (var connection = new SqliteConnection("Data Source=data.db"))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = "SELECT * FROM users WHERE id=$id";
+                command.Parameters.AddWithValue("$id", userId);
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        lastFmUserName = reader.GetString(1);
+                    }
+                }
+            }
+
+            if (lastFmUserName != null)
+            {
+                var client = new LastfmClient(config["LastFmKey"], config["e3a3b008d109e04c6d6066631076a22f"]);
+
+                var track = await client.User.GetRecentScrobbles(lastFmUserName, count: 1);
+
+                var lastTrack = track.FirstOrDefault();
+
+                if (lastTrack != null)
+                {
+                    var songName = lastTrack.ArtistName + " " + lastTrack.Name;
+
+                    var spotifyResult = await SearchSpotify(songName);
+
+                    var youTubeResult = await SearchYouTube(songName);
+
+                    await ReplyAsync(spotifyResult ?? "No Spotify match found.");
+                    await ReplyAsync("\n" + youTubeResult ?? "No YouTube match found");
+                }
+                else
+                {
+                    await ReplyAsync("No now playing data found for Last.fm user");
+                }
+            }
+            else
+            {
+                await ReplyAsync("No Last.fm user name found. Use !npset to set your Last.fm user name");
+            }
         }
 
         private async Task<string?> GetYoutubeTitle(string details)

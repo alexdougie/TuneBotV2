@@ -13,13 +13,13 @@ namespace TuneBot
         private readonly IServiceProvider provider;
         private readonly DiscordSocketClient discord;
         private readonly CommandService commands;
-        private readonly IConfigurationRoot config;
+        private readonly IConfiguration config;
 
         public StartupService(
             IServiceProvider provider,
             DiscordSocketClient discord,
             CommandService commands,
-            IConfigurationRoot config)
+            IConfiguration config)
         {
             this.provider = provider;
             this.config = config;

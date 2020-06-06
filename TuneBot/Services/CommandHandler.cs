@@ -10,13 +10,13 @@ namespace TuneBot
     {
         private readonly DiscordSocketClient discord;
         private readonly CommandService commands;
-        private readonly IConfigurationRoot config;
+        private readonly IConfiguration config;
         private readonly IServiceProvider provider;
 
         public CommandHandler(
             DiscordSocketClient discord,
             CommandService commands,
-            IConfigurationRoot config,
+            IConfiguration config,
             IServiceProvider provider)
         {
             this.discord = discord;
