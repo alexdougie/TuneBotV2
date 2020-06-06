@@ -26,8 +26,6 @@ namespace TuneBot
 
             await startup.RunAsync();
         }
-        
-
 
         private async Task RunAsync()
         {
