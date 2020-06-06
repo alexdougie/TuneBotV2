@@ -111,7 +111,7 @@ namespace TuneBot.Modules
 
             if (lastFmUserName != null)
             {
-                var client = new LastfmClient(config["LastFmKey"], config["e3a3b008d109e04c6d6066631076a22f"]);
+                var client = new LastfmClient(config["LastFmKey"], config["LastFmSecret"]);
 
                 var track = await client.User.GetRecentScrobbles(lastFmUserName, count: 1);
 
