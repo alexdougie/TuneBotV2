@@ -4,8 +4,8 @@ using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using Microsoft.Extensions.Configuration;
 using SpotifyAPI.Web;
-using SpotifyAPI.Web.Auth;
 using SpotifyAPI.Web.Enums;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -14,8 +14,15 @@ namespace TuneBot.Modules
     public class TrackModule : ModuleBase<SocketCommandContext>
     {
         private readonly IConfigurationRoot config;
+        private readonly SpotifyWebAPI spotify;
+        private readonly YouTubeService youtube;
 
-        public TrackModule(IConfigurationRoot config) => this.config = config;
+        public TrackModule(IConfigurationRoot config, SpotifyWebAPI spotify, YouTubeService youtubeService)
+        {
+            this.config = config;
+            this.spotify = spotify;
+            this.youtube = youtubeService;
+        }
 
         [Command("track")]
         [Summary("Gets a track from Spotify and YouTube.")]
@@ -25,50 +32,97 @@ namespace TuneBot.Modules
 
             var youTubeResult = await SearchYouTube(details);
 
-            await ReplyAsync(spotifyResult + "\n" + youTubeResult);
+            await ReplyAsync(spotifyResult ?? "No Spotify match found.");
+            await ReplyAsync("\n" + youTubeResult ?? "No YouTube match found");
         }
 
-        private async Task<string> SearchSpotify(string details)
+        [Command("link")]
+        [Summary("Converts either a YouTube or Spotify URL.")]
+        public async Task GetLink([Remainder] string link)
         {
-            // todo: singleton spotify object
-            var credentialsAuth = new CredentialsAuth(
-                config["SpotifyId"],
-                config["SpotifySecret"]);
+            var result = "No match found.";
 
-            var token = await credentialsAuth.GetToken();
-            var spotify = new SpotifyWebAPI
+            if (link.Contains("spotify", StringComparison.OrdinalIgnoreCase))
             {
-                AccessToken = token.AccessToken,
-                TokenType = token.TokenType
-            };
+                var spotifyTrack = await GetSpotifyTrack(link);
 
+                if(spotifyTrack != null)
+                    result = await SearchYouTube(spotifyTrack);
+            }
+            else if(link.Contains("youtube", StringComparison.OrdinalIgnoreCase) ||
+                    link.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+            {
+                var youTubeResult = await GetYoutubeTitle(link);
+
+                if(youTubeResult != null)
+                {
+                    var spotifyResult = await SearchSpotify(youTubeResult);
+
+                    if (spotifyResult != null)
+                        result = spotifyResult;
+                }
+            }
+
+            await ReplyAsync(result);
+        }
+
+        private async Task<string?> GetYoutubeTitle(string details)
+        {
+            var searchRequest = youtube.Search.List("snippet");
+            searchRequest.Q = details;
+            searchRequest.MaxResults = 5;
+
+            var response = await searchRequest.ExecuteAsync();
+
+            var searchResult = response.Items.Where(i => i.Id.Kind == "youtube#video").FirstOrDefault();
+
+            var title = searchResult?.Snippet.Title;
+
+            return title;
+        }
+
+        private async Task<string?> GetSpotifyTrack(string link)
+        {
+            var id = link.Split("/").LastOrDefault();
+
+            var track = await spotify.GetTrackAsync(id);
+
+            string? result = null;
+
+            if(track != null)
+            {
+                result = "";
+                foreach (var artist in track.Artists)
+                {
+                    result += artist.Name + " ";
+                }
+
+                result += " " + track.Name;
+            }
+
+            return result;
+        }
+
+        private async Task<string?> SearchSpotify(string details)
+        {
             var searchResult = await spotify.SearchItemsAsync(details, SearchType.Track, 1);
 
-            var track = searchResult.Tracks.Items.First();
+            var track = searchResult.Tracks?.Items.FirstOrDefault();
 
-            var result =
-                track != null ?
-                    track.ExternUrls["spotify"] :
-                    "No Spotify result found";
+            var result = track?.ExternUrls["spotify"];
 
             return result;
         }
 
         private async Task<string> SearchYouTube(string details)
         {
-            var youtubeService = new YouTubeService(
-                new BaseClientService.Initializer()
-                {
-                    ApiKey = config["YouTubeKey"]
-                });
-
-            var searchRequest = youtubeService.Search.List("snippet");
+            var searchRequest = youtube.Search.List("snippet");
             searchRequest.Q = details;
             searchRequest.MaxResults = 5;
 
             var response = await searchRequest.ExecuteAsync();
 
-            var searchResult = response.Items.Where(i => i.Id.Kind == "youtube#video").First();
+            var searchResult = response.Items.Where(i => i.Id.Kind == "youtube#video").FirstOrDefault();
 
             var result =
                 searchResult != null ?

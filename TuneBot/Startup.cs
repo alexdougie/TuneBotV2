@@ -1,7 +1,11 @@
 ﻿using Discord.Commands;
 using Discord.WebSocket;
+using Google.Apis.Services;
+using Google.Apis.YouTube.v3;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using SpotifyAPI.Web;
+using SpotifyAPI.Web.Auth;
 using System;
 using System.Threading.Tasks;
 
@@ -30,7 +34,7 @@ namespace TuneBot
         private async Task RunAsync()
         {
             var services = new ServiceCollection();
-            ConfigureServices(services);
+            await ConfigureServicesAsync(services);
 
             var provider = services.BuildServiceProvider();
             provider.GetRequiredService<LoggingService>();
@@ -41,8 +45,26 @@ namespace TuneBot
             await Task.Delay(-1);
         }
 
-        private void ConfigureServices(ServiceCollection services)
+        private async Task ConfigureServicesAsync(ServiceCollection services)
         {
+            var credentialsAuth = new CredentialsAuth(
+                Configuration["SpotifyId"],
+                Configuration["SpotifySecret"]);
+
+            var token = await credentialsAuth.GetToken();
+
+            var spotify = new SpotifyWebAPI
+            {
+                AccessToken = token.AccessToken,
+                TokenType = token.TokenType
+            };
+
+            var youtubeService = new YouTubeService(
+                new BaseClientService.Initializer()
+                {
+                    ApiKey = Configuration["YouTubeKey"]
+                });
+
             services
                 .AddSingleton(
                 new DiscordSocketClient(
@@ -52,6 +74,8 @@ namespace TuneBot
                 .AddSingleton<CommandHandler>()
                 .AddSingleton<StartupService>()
                 .AddSingleton<LoggingService>()
+                .AddSingleton(spotify)
+                .AddSingleton(youtubeService)
                 .AddSingleton(Configuration);
         }
     }
