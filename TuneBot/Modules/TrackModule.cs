@@ -5,6 +5,7 @@ using IF.Lastfm.Core.Api;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using SpotifyAPI.Web;
+using SpotifyAPI.Web.Auth;
 using SpotifyAPI.Web.Enums;
 using System;
 using System.Linq;
@@ -14,13 +15,11 @@ namespace TuneBot.Modules
 {
     public class TrackModule : ModuleBase<SocketCommandContext>
     {
-        private readonly SpotifyWebAPI spotify;
         private readonly YouTubeService youtube;
         private readonly IConfiguration config;
 
-        public TrackModule(SpotifyWebAPI spotify, YouTubeService youtube, IConfiguration config)
+        public TrackModule(YouTubeService youtube, IConfiguration config)
         {
-            this.spotify = spotify;
             this.youtube = youtube;
             this.config = config;
         }
@@ -156,6 +155,18 @@ namespace TuneBot.Modules
 
         private async Task<string?> GetSpotifyTrack(string link)
         {
+            var credentialsAuth = new CredentialsAuth(
+                config["SpotifyId"],
+                config["SpotifySecret"]);
+
+            var token = await credentialsAuth.GetToken();
+
+            var spotify = new SpotifyWebAPI
+            {
+                AccessToken = token.AccessToken,
+                TokenType = token.TokenType
+            };
+
             var id = link.Split("/").LastOrDefault();
 
             var track = await spotify.GetTrackAsync(id);
@@ -178,6 +189,18 @@ namespace TuneBot.Modules
 
         private async Task<string?> SearchSpotify(string details)
         {
+            var credentialsAuth = new CredentialsAuth(
+                config["SpotifyId"],
+                config["SpotifySecret"]);
+
+            var token = await credentialsAuth.GetToken();
+
+            var spotify = new SpotifyWebAPI
+            {
+                AccessToken = token.AccessToken,
+                TokenType = token.TokenType
+            };
+
             var searchResult = await spotify.SearchItemsAsync(details, SearchType.Track, 1);
 
             var track = searchResult.Tracks?.Items.FirstOrDefault();
