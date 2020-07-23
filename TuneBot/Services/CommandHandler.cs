@@ -38,10 +38,7 @@ namespace TuneBot
             if (msg.HasStringPrefix("!", ref argPos) ||
                 msg.HasMentionPrefix(discord.CurrentUser, ref argPos))
             {
-                var result = await commands.ExecuteAsync(context, argPos, provider);
-
-                if (!result.IsSuccess)
-                    await context.Channel.SendMessageAsync(result.ToString());
+                await commands.ExecuteAsync(context, argPos, provider);
             }
         }
     }

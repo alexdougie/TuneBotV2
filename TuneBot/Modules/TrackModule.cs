@@ -28,9 +28,11 @@ namespace TuneBot.Modules
         [Summary("Gets a track from Spotify and YouTube.")]
         public async Task GetTrack([Remainder]string details)
         {
-            var spotifyResult = await SearchSpotify(details);
+            var spotifyResultTask = SearchSpotify(details);
 
             var youTubeResult = await SearchYouTube(details);
+
+            var spotifyResult = await spotifyResultTask;
 
             await ReplyAsync(spotifyResult ?? "No Spotify match found.");
             await ReplyAsync("\n" + youTubeResult ?? "No YouTube match found");
@@ -120,9 +122,11 @@ namespace TuneBot.Modules
                 {
                     var songName = lastTrack.ArtistName + " " + lastTrack.Name;
 
-                    var spotifyResult = await SearchSpotify(songName);
+                    var spotifyResultTask = SearchSpotify(songName);
 
                     var youTubeResult = await SearchYouTube(songName);
+
+                    var spotifyResult = await spotifyResultTask;
 
                     await ReplyAsync(spotifyResult ?? "No Spotify match found.");
                     await ReplyAsync("\n" + youTubeResult ?? "No YouTube match found");
