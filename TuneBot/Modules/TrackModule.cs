@@ -5,8 +5,6 @@ using IF.Lastfm.Core.Api;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using SpotifyAPI.Web;
-using SpotifyAPI.Web.Auth;
-using SpotifyAPI.Web.Enums;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -26,13 +24,12 @@ namespace TuneBot.Modules
 
         [Command("track")]
         [Summary("Gets a track from Spotify and YouTube.")]
-        public async Task GetTrack([Remainder]string details)
+        public async Task GetTrack([Remainder] string details)
         {
             var spotifyResultTask = SearchSpotify(details);
-
-            var youTubeResult = await SearchYouTube(details);
-
+            var youTubeResultTask = SearchYouTube(details);
             var spotifyResult = await spotifyResultTask;
+            var youTubeResult = await youTubeResultTask;
 
             await ReplyAsync(spotifyResult ?? "No Spotify match found.");
             await ReplyAsync("\n" + youTubeResult ?? "No YouTube match found");
@@ -48,15 +45,15 @@ namespace TuneBot.Modules
             {
                 var spotifyTrack = await GetSpotifyTrack(link);
 
-                if(spotifyTrack != null)
+                if (spotifyTrack != null)
                     result = await SearchYouTube(spotifyTrack);
             }
-            else if(link.Contains("youtube", StringComparison.OrdinalIgnoreCase) ||
+            else if (link.Contains("youtube", StringComparison.OrdinalIgnoreCase) ||
                     link.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
             {
                 var youTubeResult = await GetYoutubeTitle(link);
 
-                if(youTubeResult != null)
+                if (youTubeResult != null)
                 {
                     var spotifyResult = await SearchSpotify(youTubeResult);
 
@@ -82,7 +79,7 @@ namespace TuneBot.Modules
                 command.Parameters.AddWithValue("$id", userId);
                 command.Parameters.AddWithValue("$lastfm_name", userName);
 
-                command.ExecuteNonQuery();
+                await command.ExecuteNonQueryAsync();
             }
         }
 
@@ -123,13 +120,12 @@ namespace TuneBot.Modules
                     var songName = lastTrack.ArtistName + " " + lastTrack.Name;
 
                     var spotifyResultTask = SearchSpotify(songName);
-
-                    var youTubeResult = await SearchYouTube(songName);
-
+                    var youTubeResultTask = SearchYouTube(songName);
                     var spotifyResult = await spotifyResultTask;
+                    var youTubeResult = await youTubeResultTask;
 
                     await ReplyAsync(spotifyResult ?? "No Spotify match found.");
-                    await ReplyAsync("\n" + youTubeResult ?? "No YouTube match found");
+                    await ReplyAsync(youTubeResult ?? "No YouTube match found");
                 }
                 else
                 {
@@ -159,25 +155,20 @@ namespace TuneBot.Modules
 
         private async Task<string?> GetSpotifyTrack(string link)
         {
-            var credentialsAuth = new CredentialsAuth(
-                config["SpotifyId"],
-                config["SpotifySecret"]);
+            var spotifyConfig = SpotifyClientConfig
+                .CreateDefault()
+                .WithAuthenticator(
+                    new ClientCredentialsAuthenticator(config["SpotifyId"], config["SpotifySecret"]));
 
-            var token = await credentialsAuth.GetToken();
-
-            var spotify = new SpotifyWebAPI
-            {
-                AccessToken = token.AccessToken,
-                TokenType = token.TokenType
-            };
+            var spotify = new SpotifyClient(spotifyConfig);
 
             var id = link.Split("/").LastOrDefault();
 
-            var track = await spotify.GetTrackAsync(id);
+            var track = await spotify.Tracks.Get(id ?? "");
 
             string? result = null;
 
-            if(track != null)
+            if (track != null)
             {
                 result = "";
                 foreach (var artist in track.Artists)
@@ -193,23 +184,18 @@ namespace TuneBot.Modules
 
         private async Task<string?> SearchSpotify(string details)
         {
-            var credentialsAuth = new CredentialsAuth(
-                config["SpotifyId"],
-                config["SpotifySecret"]);
+            var spotifyConfig = SpotifyClientConfig
+                .CreateDefault()
+                .WithAuthenticator(
+                    new ClientCredentialsAuthenticator(config["SpotifyId"], config["SpotifySecret"]));
 
-            var token = await credentialsAuth.GetToken();
+            var spotify = new SpotifyClient(spotifyConfig);
 
-            var spotify = new SpotifyWebAPI
-            {
-                AccessToken = token.AccessToken,
-                TokenType = token.TokenType
-            };
+            var searchResult = await spotify.Search.Item(new SearchRequest(SearchRequest.Types.Track, details));
 
-            var searchResult = await spotify.SearchItemsAsync(details, SearchType.Track, 1);
+            var track = searchResult.Tracks?.Items?.FirstOrDefault();
 
-            var track = searchResult.Tracks?.Items.FirstOrDefault();
-
-            var result = track?.ExternUrls["spotify"];
+            var result = track?.ExternalUrls["spotify"];
 
             return result;
         }

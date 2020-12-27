@@ -403,3 +403,4 @@ Temporary Items
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,macos
 
 TuneBot/ApiKeys.json
+TuneBot/data.db

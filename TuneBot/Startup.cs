@@ -35,7 +35,7 @@ namespace TuneBot
         private async Task RunAsync()
         {
             var services = new ServiceCollection();
-            await ConfigureServicesAsync(services);
+            ConfigureServices(services);
 
             var provider = services.BuildServiceProvider();
             provider.GetRequiredService<LoggingService>();
@@ -55,20 +55,8 @@ namespace TuneBot
             await Task.Delay(-1);
         }
 
-        private async Task ConfigureServicesAsync(ServiceCollection services)
+        private void ConfigureServices(ServiceCollection services)
         {
-            var credentialsAuth = new CredentialsAuth(
-                Configuration["SpotifyId"],
-                Configuration["SpotifySecret"]);
-
-            var token = await credentialsAuth.GetToken();
-
-            var spotify = new SpotifyWebAPI
-            {
-                AccessToken = token.AccessToken,
-                TokenType = token.TokenType
-            };
-
             var youtubeService = new YouTubeService(
                 new BaseClientService.Initializer()
                 {
@@ -84,7 +72,6 @@ namespace TuneBot
                 .AddSingleton<CommandHandler>()
                 .AddSingleton<StartupService>()
                 .AddSingleton<LoggingService>()
-                .AddSingleton(spotify)
                 .AddSingleton(youtubeService)
                 .AddSingleton(Configuration);
         }
