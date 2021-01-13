@@ -163,6 +163,12 @@ namespace TuneBot.Modules
             var spotify = new SpotifyClient(spotifyConfig);
 
             var id = link.Split("/").LastOrDefault();
+            var idWithoutQueryString = id?.Split("?").FirstOrDefault();
+
+            if(idWithoutQueryString != null)
+            {
+                id = idWithoutQueryString;
+            }
 
             var track = await spotify.Tracks.Get(id ?? "");
 
