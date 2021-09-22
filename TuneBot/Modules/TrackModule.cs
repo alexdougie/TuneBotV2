@@ -4,9 +4,12 @@ using Google.Apis.YouTube.v3;
 using IF.Lastfm.Core.Api;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json.Linq;
 using SpotifyAPI.Web;
 using System;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
 
 namespace TuneBot.Modules
@@ -15,7 +18,6 @@ namespace TuneBot.Modules
     {
         private readonly YouTubeService youtube;
         private readonly IConfiguration config;
-
         public TrackModule(YouTubeService youtube, IConfiguration config)
         {
             this.youtube = youtube;
@@ -82,7 +84,23 @@ namespace TuneBot.Modules
                 await command.ExecuteNonQueryAsync();
             }
         }
+        [Command("npsetspotify")]
+        [Summary("Sets your spotify token. Must be done before !nps can be used.")]
+        public async Task NowPlayingSetSpotify([Remainder] string token)
+        {
+            var userId = Context.User.Id;
 
+            using (var connection = new SqliteConnection("Data Source=data.db"))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = "INSERT OR REPLACE INTO users(id, spotify_token) VALUES($id,$spotify_token)";
+                command.Parameters.AddWithValue("$id", userId);
+                command.Parameters.AddWithValue("$spotify_token", token);
+
+                await command.ExecuteNonQueryAsync();
+            }
+        }
         [Command("np")]
         [Summary("Gets current/last scrobbled track from Last.fm.")]
         public async Task NowPlaying()
@@ -137,7 +155,73 @@ namespace TuneBot.Modules
                 await ReplyAsync("No Last.fm user name found. Use !npset to set your Last.fm user name");
             }
         }
+        [Command("nps")]
+        [Summary("Gets currently playing spotify song")]
+        public async Task NowPlayingSpotify()
+        {
+            var userId = Context.User.Id;
 
+            string? token = null;
+
+            using (var connection = new SqliteConnection("Data Source=data.db"))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = "SELECT * FROM users WHERE id=$id";
+                command.Parameters.AddWithValue("$id", userId);
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        token = reader.GetString(2);
+                    }
+                }
+            }
+
+            if (token != null)
+            {
+
+                var track = await GetTrackAsync("https://api.spotify.com/v1/me/player/currently-playing", token);
+
+                if (track != "")
+                {
+                    var spotifyResultTask = SearchSpotify(track);
+                    var youTubeResultTask = SearchYouTube(track);
+                    var spotifyResult = await spotifyResultTask;
+                    var youTubeResult = await youTubeResultTask;
+
+                    await ReplyAsync(spotifyResult ?? "No Spotify match found.");
+                    await ReplyAsync(youTubeResult ?? "No YouTube match found");
+                }
+                else
+                {
+                    await ReplyAsync("No now playing data found for Spotify");
+                }
+            }
+            else
+            {
+                await ReplyAsync("Spotify token invalid. Use !npsetspotify to set your Sptoify token.");
+            }
+        }
+        private static async Task<string> GetTrackAsync(string path, string token)
+        {
+            using (var client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+
+                var response = await client.GetAsync(path);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    JObject json = JObject.Parse(response.Content.ReadAsStringAsync().Result);
+                    string track = json.SelectToken("items[0].artists[0].name") + " " + json.SelectToken("items[0].item.name");
+                    return track;
+                } else
+                    return "";
+            }
+        }
         private async Task<string?> GetYoutubeTitle(string details)
         {
             var searchRequest = youtube.Search.List("snippet");

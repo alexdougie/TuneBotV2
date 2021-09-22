@@ -47,7 +47,7 @@ namespace TuneBot
             {
                 await connection.OpenAsync();
                 var command = connection.CreateCommand();
-                command.CommandText = "CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, lastfm_name TEXT)";
+                command.CommandText = "CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, lastfm_name TEXT, spotify_token TEXT)";
 
                 command.ExecuteNonQuery();
             }
