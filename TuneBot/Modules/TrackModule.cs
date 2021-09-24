@@ -4,6 +4,7 @@ using Google.Apis.YouTube.v3;
 using IF.Lastfm.Core.Api;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SpotifyAPI.Web;
 using System;
@@ -11,6 +12,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
+using TuneBot.Models;
 
 namespace TuneBot.Modules
 {
@@ -182,7 +184,7 @@ namespace TuneBot.Modules
             if (token != null)
             {
 
-                var track = await GetTrackAsync("https://api.spotify.com/v1/me/player/currently-playing", token);
+                var track = await GetTrackAsync("https://api.spotify.com/v1/me/player/currently-playing?market=ES&additional_types=episode", token);
 
                 if (track != "")
                 {
@@ -215,8 +217,8 @@ namespace TuneBot.Modules
 
                 if (response.IsSuccessStatusCode)
                 {
-                    JObject json = JObject.Parse(response.Content.ReadAsStringAsync().Result);
-                    string track = json.SelectToken("items[0].artists[0].name") + " " + json.SelectToken("items[0].item.name");
+                    var obj = JsonConvert.DeserializeObject<SpotifyCurrentlyPlaying>(response.Content.ReadAsStringAsync().Result);
+                    string track = obj.item.Artists[0].name + " " + obj.item.name;
                     return track;
                 } else
                     return "";
