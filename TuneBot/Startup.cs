@@ -5,8 +5,6 @@ using Google.Apis.YouTube.v3;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using SpotifyAPI.Web;
-using SpotifyAPI.Web.Auth;
 using System;
 using System.Threading.Tasks;
 
@@ -46,10 +44,12 @@ namespace TuneBot
             using(var connection = new SqliteConnection("Data Source=data.db"))
             {
                 await connection.OpenAsync();
-                var command = connection.CreateCommand();
-                command.CommandText = "CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, lastfm_name TEXT, spotify_token TEXT)";
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, lastfm_name TEXT, spotify_token TEXT)";
 
-                command.ExecuteNonQuery();
+                    command.ExecuteNonQuery();
+                }
             }
 
             await Task.Delay(-1);
