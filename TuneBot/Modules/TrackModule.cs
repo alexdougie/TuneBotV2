@@ -253,6 +253,52 @@ namespace TuneBot.Modules
             }
         }
 
+        [Command("goodbot")]
+        [Summary("Good bot.")]
+        public async Task GoodBot()
+        {
+            using var typing = Context.Channel.EnterTypingState();
+            var userId = Context.User.Id;
+
+            string? lastFmUserName = null;
+
+            using (var connection = new SqliteConnection("Data Source=data.db"))
+            {
+                await connection.OpenAsync();
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT * FROM users WHERE id=$id";
+                    command.Parameters.AddWithValue("$id", userId);
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var isNull = await reader.IsDBNullAsync(1);
+
+                            lastFmUserName = isNull == true ? null : reader.GetString(1);
+                        }
+                    }
+                }
+            }
+
+            if (lastFmUserName != null)
+            {
+                if (lastFmUserName.Equals("rijads"))
+                {
+                    await ReplyAsync("Wurf.");
+                }
+                else
+                {
+                    await ReplyAsync("Go away " + lastFmUserName + ".");
+                }
+            }
+            else
+            {
+                await ReplyAsync("No Last.fm user name found. Use !npset <username> to set your Last.fm user name");
+            }
+        }
+
         private async Task<string?> GetYoutubeTitle(string details)
         {
             var searchRequest = youtube.Search.List("snippet");
