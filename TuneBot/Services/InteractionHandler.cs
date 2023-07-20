@@ -9,16 +9,15 @@ using Discord.Interactions;
 
 namespace TuneBot.Services
 {
-    internal sealed class CommandHandler
+    internal sealed class InteractionHandler
     {
         private readonly DiscordSocketClient _discordSocketClient;
         private readonly InteractionService _commands;
         private readonly IServiceProvider _serviceProvider;
 
-        public CommandHandler(
+        public InteractionHandler(
             DiscordSocketClient discordSocketClient,
             InteractionService commands,
-            IConfiguration configuration,
             IServiceProvider serviceProvider)
         {
             _discordSocketClient = discordSocketClient;

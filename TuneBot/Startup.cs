@@ -1,12 +1,16 @@
-﻿using Discord.Commands;
-using Discord.WebSocket;
+﻿using Discord.WebSocket;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.IO;
 using System.Threading.Tasks;
+using Discord;
+using Discord.Interactions;
+using TuneBot.Services;
+using TuneBot.Services.DataAccess;
+using Discord.Commands;
 
 namespace TuneBot
 {
@@ -14,14 +18,15 @@ namespace TuneBot
     {
         public Startup()
         {
+            Console.WriteLine(Directory.GetCurrentDirectory());
             var builder = new ConfigurationBuilder()
-               .SetBasePath(AppContext.BaseDirectory)
+               .SetBasePath(Directory.GetCurrentDirectory())
                .AddJsonFile("ApiKeys.json");
 
-            Configuration = builder.Build();
+            _configuration = builder.Build();
         }
 
-        public IConfiguration Configuration { get; }
+        private readonly IConfiguration _configuration;
 
         public static async Task RunAsync(string[] args)
         {
@@ -32,48 +37,50 @@ namespace TuneBot
 
         private async Task RunAsync()
         {
-            var services = new ServiceCollection();
-            ConfigureServices(services);
+            var provider = ConfigureServices();
+            
+            var client = provider.GetRequiredService<DiscordSocketClient>();
+            var slashCommands = provider.GetRequiredService<InteractionService>();
+            await provider.GetRequiredService<InteractionHandler>().InitializeAsync();
+            
+            var loggingService = provider.GetRequiredService<LoggingService>();
 
-            var provider = services.BuildServiceProvider();
-            provider.GetRequiredService<LoggingService>();
-            provider.GetRequiredService<CommandHandler>();
+            var dbService = provider.GetRequiredService<DbService>();
+            
+            await client.LoginAsync(TokenType.Bot, _configuration["BotToken"]);
+            await client.StartAsync();
 
-            await provider.GetRequiredService<StartupService>().StartAsync();
-
-            using(var connection = new SqliteConnection("Data Source=data.db"))
+            client.Ready += async () =>
             {
-                await connection.OpenAsync();
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = "CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, lastfm_name TEXT, spotify_token TEXT)";
+                Console.WriteLine("Bot Ready!");
+                await slashCommands.RegisterCommandsGloballyAsync();
+            };
+            
+            await dbService.SetupDb();
 
-                    command.ExecuteNonQuery();
-                }
-            }
-
+            
             await Task.Delay(-1);
         }
 
-        private void ConfigureServices(ServiceCollection services)
+        private ServiceProvider ConfigureServices()
         {
             var youtubeService = new YouTubeService(
                 new BaseClientService.Initializer()
                 {
-                    ApiKey = Configuration["YouTubeKey"]
+                    ApiKey = _configuration["YouTubeKey"]
                 });
 
-            services
-                .AddSingleton(
-                new DiscordSocketClient(
-                    new DiscordSocketConfig()))
-                .AddSingleton(
-                    new CommandService())
-                .AddSingleton<CommandHandler>()
-                .AddSingleton<StartupService>()
+            return new ServiceCollection()
+                .AddSingleton(_configuration)
+                .AddTransient<DbService>()
+                .AddSingleton<DiscordSocketClient>()
+                .AddSingleton(x => new InteractionService(x.GetRequiredService<DiscordSocketClient>()))
+                .AddSingleton<InteractionHandler>()
+                .AddSingleton<CommandService>()
                 .AddSingleton<LoggingService>()
                 .AddSingleton(youtubeService)
-                .AddSingleton(Configuration);
+                .BuildServiceProvider();
+
         }
     }
 }
