@@ -150,7 +150,7 @@ namespace TuneBot.Modules
 
                     var youtubeLink = await SearchYouTubeAndGetLinkAsync(songName);
 
-                    var components = CreateMessageComponentsForReply(spotifyTrack.ExternalUrls["spotify"], youtubeLink!);
+                    var components = CreateMessageComponentsForReply(spotifyTrack.ExternalUrls["spotify"], youtubeLink!, lastTrack.Url.ToString());
 
                     await RespondAsync(embed: embed, components: components);
                 }
@@ -204,10 +204,10 @@ namespace TuneBot.Modules
                     await SearchYouTubeAndGetLinkAsync(
                         $"{spotifyTrack.Name} + {spotifyTrack.Artists.FirstOrDefault().Name}");
 
-                var embed = await CreateEmbedAsync(spotifyTrack);
-                var messageComponents = CreateMessageComponentsForReply(spotifyTrack.Uri, youtubeLink);
-
-                await RespondAsync(embed: embed, components: messageComponents);
+                // // var embed = await CreateEmbedAsync(spotifyTrack);
+                // // var messageComponents = CreateMessageComponentsForReply(spotifyTrack.Uri, youtubeLink);
+                //
+                // await RespondAsync(embed: embed, components: messageComponents);
             }
             catch (APIUnauthorizedException)
             {
@@ -306,12 +306,13 @@ namespace TuneBot.Modules
         /// <param name="spotifyLink">Spotify link</param>
         /// <param name="youtubeLink">Youtube link</param>
         /// <returns>A <see cref="MessageComponent"/> </returns>
-        private MessageComponent? CreateMessageComponentsForReply(string spotifyLink, string youtubeLink)
+        private MessageComponent? CreateMessageComponentsForReply(string spotifyLink, string youtubeLink, string lastFmLink)
         {
             var component =
                 new ComponentBuilder()
-                    .WithButton(url: spotifyLink, label: "Spotify", style: ButtonStyle.Link)
-                    .WithButton(url: youtubeLink, label: "YouTube", style: ButtonStyle.Link)
+                    .WithButton(url: spotifyLink, label: "Spotify", style: ButtonStyle.Link, emote: Emote.Parse("<:spotify:1131691591623512155>"))
+                    .WithButton(url: youtubeLink, label: "YouTube", style: ButtonStyle.Link, emote: Emote.Parse("<:youtube:1131691587601182900>"))
+                    .WithButton(url: lastFmLink, label: "Last.fm", style: ButtonStyle.Link, emote: Emote.Parse("<:lastfm:1131844112472088607>"))
                     .Build();
 
             return component;
@@ -327,8 +328,9 @@ namespace TuneBot.Modules
             var embed = new EmbedBuilder
             {
                 Title = $"{Context.User.Username} is now listening",
-                Description = $"## {spotifyTrack.Artists.FirstOrDefault().Name} \n\n ### {spotifyTrack.Name}",
-                ImageUrl = $"{spotifyTrack.Album.Images.FirstOrDefault().Url}",
+                Description = $"**{spotifyTrack.Artists.First().Name}**\n{spotifyTrack.Name}",
+                ThumbnailUrl = $"{spotifyTrack.Album.Images.MinBy(x => x.Height).Url}",
+                Color = new Color(0x5c7cfe),
             }.Build();
 
             return embed;
