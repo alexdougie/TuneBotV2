@@ -36,8 +36,10 @@ namespace TuneBot.Modules
 
             var (spotifyResult, youtubeResult) = (await spotifyResultTask, await youTubeResultTask);
 
-            await RespondAsync(spotifyResult is null ? "No Spotify result found" : spotifyResult.Uri);
-            await RespondAsync(youtubeResult ?? "No YouTube result found");
+            var spotifyResponse = spotifyResult is null ? "No Spotify result found" : spotifyResult.ExternalUrls["spotify"];
+            var youTubeResponse = youtubeResult ?? "No YouTube result found";
+
+            await RespondAsync($"{spotifyResponse}\n{youTubeResponse}");
         }
 
         [SlashCommand("link", "Converts either a YouTube or Spotify URL")]
@@ -63,7 +65,7 @@ namespace TuneBot.Modules
                     var spotifyResult = await SearchSpotifyAsync(youTubeResult);
 
                     if (spotifyResult != null)
-                        result = spotifyResult.Uri;
+                        result = spotifyResult.ExternalUrls["spotify"];
                 }
             }
 
@@ -138,9 +140,11 @@ namespace TuneBot.Modules
 
                     var songName = lastTrack.ArtistName + " " + lastTrack.Name;
 
+                    var youTubeTask = SearchYouTubeAndGetLinkAsync(songName);
+
                     var spotifyTrack = await SearchSpotifyAsync(songName);
 
-                    var embed = await CreateEmbedAsync(spotifyTrack!);
+                    var embed = CreateEmbedAsync(spotifyTrack!);
 
                     if (embed is null)
                     {
@@ -148,7 +152,7 @@ namespace TuneBot.Modules
                         return;
                     }
 
-                    var youtubeLink = await SearchYouTubeAndGetLinkAsync(songName);
+                    var youtubeLink = await youTubeTask;
 
                     var components = CreateMessageComponentsForReply(spotifyTrack.ExternalUrls["spotify"], youtubeLink!, lastTrack.Url.ToString());
 
@@ -323,11 +327,11 @@ namespace TuneBot.Modules
         /// </summary>
         /// <param name="spotifyTrack">Spotify track object</param>
         /// <returns>A <see cref="Embed"/></returns>
-        private async Task<Embed?> CreateEmbedAsync(FullTrack spotifyTrack)
+        private Embed CreateEmbedAsync(FullTrack spotifyTrack)
         {
             var embed = new EmbedBuilder
             {
-                Title = $"{Context.User.Username} is now listening",
+                Title = $"{Context.User.GlobalName} is now listening",
                 Description = $"**{spotifyTrack.Artists.First().Name}**\n{spotifyTrack.Name}",
                 ThumbnailUrl = $"{spotifyTrack.Album.Images.MinBy(x => x.Height).Url}",
                 Color = new Color(0x5c7cfe),

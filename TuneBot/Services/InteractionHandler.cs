@@ -1,6 +1,4 @@
-﻿using Discord.Commands;
-using Discord.WebSocket;
-using Microsoft.Extensions.Configuration;
+﻿using Discord.WebSocket;
 using System;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -23,8 +21,6 @@ namespace TuneBot.Services
             _discordSocketClient = discordSocketClient;
             _commands = commands;
             _serviceProvider = serviceProvider;
-
-            _discordSocketClient.InteractionCreated +=  HandleInteraction;
         }
         
         public async Task InitializeAsync()
