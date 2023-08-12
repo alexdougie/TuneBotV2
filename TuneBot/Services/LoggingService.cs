@@ -5,9 +5,9 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 
-namespace TuneBot
+namespace TuneBot.Services
 {
-    internal class LoggingService
+    internal sealed class LoggingService
     {
         private readonly DiscordSocketClient discord;
         private readonly CommandService commands;

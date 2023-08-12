@@ -2,42 +2,45 @@
 using Discord.Commands;
 using Google.Apis.YouTube.v3;
 using IF.Lastfm.Core.Api;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using SpotifyAPI.Web;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Discord;
+using Discord.Interactions;
+using TuneBot.Services.DataAccess;
 
 namespace TuneBot.Modules
 {
-    public class TrackModule : ModuleBase<SocketCommandContext>
+    public class TrackModule : InteractionModuleBase<SocketInteractionContext>
     {
-        private readonly YouTubeService youtube;
-        private readonly IConfiguration config;
+        private readonly YouTubeService _youtubeService;
+        private readonly IConfiguration _configuration;
+        private readonly DbService _dbService;
 
-        public TrackModule(YouTubeService youtube, IConfiguration config)
+        public TrackModule(YouTubeService youtubeService, IConfiguration configuration, DbService dbService)
         {
-            this.youtube = youtube;
-            this.config = config;
+            _youtubeService = youtubeService;
+            _configuration = configuration;
+            _dbService = dbService;
         }
 
-        [Command("track")]
-        [Summary("Gets a track from Spotify and YouTube.")]
+        [SlashCommand("track", "Gets a track from Spotify and YouTube.")]
         public async Task GetTrack([Remainder] string details)
         {
             using var typing = Context.Channel.EnterTypingState();
 
-            var spotifyResultTask = SearchSpotify(details);
-            var youTubeResultTask = SearchYouTube(details);
-            await Task.WhenAll(spotifyResultTask, youTubeResultTask);
-           
-            await ReplyAsync(spotifyResultTask.Result ?? "No Spotify match found.");
-            await ReplyAsync("\n" + youTubeResultTask.Result ?? "No YouTube match found");
+            var spotifyResultTask = SearchSpotifyAsync(details);
+            var youTubeResultTask = SearchYouTubeAndGetLinkAsync(details);
+
+            var (spotifyResult, youtubeResult) = (await spotifyResultTask, await youTubeResultTask);
+
+            await RespondAsync(spotifyResult is null ? "No Spotify result found" : spotifyResult.Uri);
+            await RespondAsync(youtubeResult ?? "No YouTube result found");
         }
 
-        [Command("link")]
-        [Summary("Converts either a YouTube or Spotify URL.")]
+        [SlashCommand("link", "Converts either a YouTube or Spotify URL")]
         public async Task GetLink([Remainder] string link)
         {
             using var typing = Context.Channel.EnterTypingState();
@@ -45,288 +48,236 @@ namespace TuneBot.Modules
 
             if (link.Contains("spotify", StringComparison.OrdinalIgnoreCase))
             {
-                var spotifyTrack = await GetSpotifyTrack(link);
+                var spotifyTrack = await GetSpotifyTrackNameFromLink(link);
 
                 if (spotifyTrack != null)
-                    result = await SearchYouTube(spotifyTrack);
+                    result = await SearchYouTubeAndGetLinkAsync(spotifyTrack);
             }
             else if (link.Contains("youtube", StringComparison.OrdinalIgnoreCase) ||
-                    link.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+                     link.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
             {
                 var youTubeResult = await GetYoutubeTitle(link);
 
                 if (youTubeResult != null)
                 {
-                    var spotifyResult = await SearchSpotify(youTubeResult);
+                    var spotifyResult = await SearchSpotifyAsync(youTubeResult);
 
                     if (spotifyResult != null)
-                        result = spotifyResult;
+                        result = spotifyResult.Uri;
                 }
             }
 
-            await ReplyAsync(result);
+            await RespondAsync(result);
         }
 
-        [Command("npset")]
-        [Summary("Sets your Last.fm username. Must be done before !np can be used. Usage: !npset <username>")]
+
+        [SlashCommand("npset",
+            "Sets your Last.fm username. Must be done before /np can be used. Usage: /npset <username>")]
         public async Task NowPlayingSet([Remainder] string userName)
         {
             using var typing = Context.Channel.EnterTypingState();
 
             var userId = Context.User.Id;
 
-            using (var connection = new SqliteConnection("Data Source=data.db"))
-            {
-                await connection.OpenAsync();
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = "INSERT OR REPLACE INTO users(id, lastfm_name) VALUES($id,$lastfm_name)";
-                    command.Parameters.AddWithValue("$id", userId);
-                    command.Parameters.AddWithValue("$lastfm_name", userName);
+            var result = await _dbService.SetLastFmUsername(userId, userName);
 
-                    await command.ExecuteNonQueryAsync();
-                }
+            if (result < 1)
+            {
+                await RespondAsync(
+                    "Something went wrong when setting lastFm username... Please reach out to developers");
+                return;
             }
 
-            await ReplyAsync("Last.fm username saved");
+            await RespondAsync("Last.fm username saved");
         }
 
-        [Command("npsetspotify")]
-        [Summary("Sets your spotify token. Must be done before !nps can be used.")]
+        [SlashCommand("npsetspotify", "Sets your spotify token. Must be done before /nps can be used.")]
         public async Task NowPlayingSetSpotify([Remainder] string token)
         {
             using var typing = Context.Channel.EnterTypingState();
             var userId = Context.User.Id;
 
-            using (var connection = new SqliteConnection("Data Source=data.db"))
-            {
-                await connection.OpenAsync();
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = "INSERT OR REPLACE INTO users(id, spotify_token) VALUES($id,$spotify_token)";
-                    command.Parameters.AddWithValue("$id", userId);
-                    command.Parameters.AddWithValue("$spotify_token", token);
+            var result = await _dbService.SetSpotifyToken(userId, token);
 
-                    await command.ExecuteNonQueryAsync();
-                }
+            if (result < 1)
+            {
+                await RespondAsync("Something went wrong when setting spotify token... Please reach out to developers");
+                return;
             }
 
-            await ReplyAsync("Spotify token saved");
+            await RespondAsync("Spotify token saved");
         }
 
-        [Command("np")]
-        [Summary("Gets current/last scrobbled track from Last.fm.")]
+        [SlashCommand("np", "Gets current/last scrobbled track from Last.fm.")]
         public async Task NowPlaying()
         {
-            using var typing = Context.Channel.EnterTypingState();
             var userId = Context.User.Id;
 
-            string? lastFmUserName = null;
+            string? lastFmUserName = await _dbService.GetLastFmUsername(userId);
 
-            using (var connection = new SqliteConnection("Data Source=data.db"))
+            if (string.IsNullOrEmpty(lastFmUserName))
             {
-                await connection.OpenAsync();
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = "SELECT * FROM users WHERE id=$id";
-                    command.Parameters.AddWithValue("$id", userId);
-
-                    using (var reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            var isNull = await reader.IsDBNullAsync(1);
-
-                            lastFmUserName = isNull == true ? null : reader.GetString(1);
-                        }
-                    }
-                }
+                await RespondAsync(
+                    "No Last.fm user name found. Use !npset <username> to set your Last.fm user name");
+                return;
             }
 
-            if (lastFmUserName != null)
+            using var client = new LastfmClient(_configuration["LastFmKey"], _configuration["LastFmSecret"]);
             {
-                using var client = new LastfmClient(config["LastFmKey"], config["LastFmSecret"]);
-
-                var track = await client.User.GetRecentScrobbles(lastFmUserName, count: 1);
-
-                var lastTrack = track.FirstOrDefault();
-
-                if (lastTrack != null)
+                try
                 {
+                    var track = await client.User.GetRecentScrobbles(lastFmUserName, count: 1);
+
+                    var lastTrack = track.FirstOrDefault();
+
+                    if (lastTrack is null)
+                    {
+                        await RespondAsync("No now playing data found for Last.fm user");
+                        return;
+                    }
+
                     var songName = lastTrack.ArtistName + " " + lastTrack.Name;
 
-                    var spotifyResultTask = SearchSpotify(songName);
-                    var youTubeResultTask = SearchYouTube(songName);
-                    await Task.WhenAll(spotifyResultTask, youTubeResultTask);
+                    var spotifyTrack = await SearchSpotifyAsync(songName);
 
-                    await ReplyAsync(spotifyResultTask.Result ?? "No Spotify match found.");
-                    await ReplyAsync(youTubeResultTask.Result ?? "No YouTube match found");
+                    var embed = await CreateEmbedAsync(spotifyTrack!);
+
+                    if (embed is null)
+                    {
+                        await RespondAsync("Data for now playing not found");
+                        return;
+                    }
+
+                    var youtubeLink = await SearchYouTubeAndGetLinkAsync(songName);
+
+                    var components = CreateMessageComponentsForReply(spotifyTrack.ExternalUrls["spotify"], youtubeLink!, lastTrack.Url.ToString());
+
+                    await RespondAsync(embed: embed, components: components);
                 }
-                else
+                catch (Exception e)
                 {
-                    await ReplyAsync("No now playing data found for Last.fm user");
+                    Console.WriteLine(e);
+                    throw;
                 }
-            }
-            else
-            {
-                await ReplyAsync("No Last.fm user name found. Use !npset <username> to set your Last.fm user name");
             }
         }
 
-        [Command("nps")]
-        [Summary("Gets currently playing spotify song")]
+        [SlashCommand("nps", "Gets currently playing spotify song")]
         public async Task NowPlayingSpotify()
         {
             using var typing = Context.Channel.EnterTypingState();
 
             var userId = Context.User.Id;
 
-            string? token = null;
+            var token = await _dbService.GetSpotifyToken(userId);
 
-            using (var connection = new SqliteConnection("Data Source=data.db"))
+            if (string.IsNullOrEmpty(token))
             {
-                await connection.OpenAsync();
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = "SELECT * FROM users WHERE id=$id";
-                    command.Parameters.AddWithValue("$id", userId);
-
-                    using (var reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            var isNull = await reader.IsDBNullAsync(2);
-
-                            token = isNull == true ? null : reader.GetString(2);
-                        }
-                    }
-                }
+                await RespondAsync(
+                    $"Spotify token invalid. Use /npsetspotify <token> in a private message to TuneBot to set your Spotify token.\n Do not send this token in a public channel. ");
+                return;
             }
 
-            if (token != null)
+            try
             {
-                try
+                var spotifyConfig = SpotifyClientConfig
+                    .CreateDefault()
+                    .WithAuthenticator(
+                        new ClientCredentialsAuthenticator(_configuration["SpotifyId"],
+                            _configuration["SpotifySecret"]));
+
+                var spotify = new SpotifyClient(spotifyConfig);
+
+                var currentlyPlaying =
+                    await spotify.Player.GetCurrentlyPlaying(
+                        new PlayerCurrentlyPlayingRequest(PlayerCurrentlyPlayingRequest.AdditionalTypes.Track));
+
+                var spotifyTrack = currentlyPlaying.Item as FullTrack;
+
+                if (spotifyTrack is null)
                 {
-                    string? trackUri = null;
-                    string? trackDetails = null;
-                    var spotifyConfig = SpotifyClientConfig
-                        .CreateDefault()
-                        .WithAuthenticator(
-                            new ClientCredentialsAuthenticator(config["SpotifyId"], config["SpotifySecret"]));
-
-                    var spotify = new SpotifyClient(token);
-
-                    var currentlyPlaying =
-                        await spotify.Player.GetCurrentlyPlaying(new PlayerCurrentlyPlayingRequest(PlayerCurrentlyPlayingRequest.AdditionalTypes.Track));
-
-                    if (currentlyPlaying.Item is FullTrack fullTrack)
-                    {
-                        trackUri = fullTrack.ExternalUrls["spotify"];
-                        trackDetails = string.Empty;
-
-                        foreach (var artist in fullTrack.Artists)
-                        {
-                            trackDetails += artist.Name + " ";
-                        }
-
-                        trackDetails += " - " + fullTrack.Name;
-                    }
-
-                    await ReplyAsync(trackUri ?? "No Spotify match found.");
-
-                    if (string.IsNullOrEmpty(trackDetails) == false)
-                    {
-                        var youTubeResult = await SearchYouTube(trackDetails);
-                        await ReplyAsync(youTubeResult ?? "No YouTube match found");
-                    }
-                }
-                catch(APIUnauthorizedException)
-                {
-                    await ReplyAsync("Your Spotify API token has expired.");
+                    await RespondAsync("No results found");
                     return;
                 }
+
+                var youtubeLink =
+                    await SearchYouTubeAndGetLinkAsync(
+                        $"{spotifyTrack.Name} + {spotifyTrack.Artists.FirstOrDefault().Name}");
+
+                // // var embed = await CreateEmbedAsync(spotifyTrack);
+                // // var messageComponents = CreateMessageComponentsForReply(spotifyTrack.Uri, youtubeLink);
+                //
+                // await RespondAsync(embed: embed, components: messageComponents);
             }
-            else
+            catch (APIUnauthorizedException)
             {
-                await ReplyAsync("Spotify token invalid. Use !npsetspotify <token> in a private message to TuneBot to set your Spotify token.");
-                await ReplyAsync("Do not send this token in a public chanel.");
+                await RespondAsync("Your Spotify API token has expired.");
+                return;
             }
         }
 
-        [Command("goodbot")]
-        [Summary("Good bot.")]
+        [SlashCommand("goodbot", "Good bot.")]
         public async Task GoodBot()
         {
             using var typing = Context.Channel.EnterTypingState();
             var userId = Context.User.Id;
 
-            string? lastFmUserName = null;
+            string lastFmUserName = await _dbService.GetLastFmUsername(userId);
 
-            using (var connection = new SqliteConnection("Data Source=data.db"))
+            if (string.IsNullOrEmpty(lastFmUserName))
             {
-                await connection.OpenAsync();
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = "SELECT * FROM users WHERE id=$id";
-                    command.Parameters.AddWithValue("$id", userId);
-
-                    using (var reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            var isNull = await reader.IsDBNullAsync(1);
-
-                            lastFmUserName = isNull == true ? null : reader.GetString(1);
-                        }
-                    }
-                }
+                await RespondAsync(
+                    "No Last.fm user name found. Use /npset <username> to set your Last.fm user name");
+                return;
             }
 
-            if (lastFmUserName != null)
+            if (lastFmUserName.Equals("rijads"))
             {
-                if (lastFmUserName.Equals("rijads"))
-                {
-                    await ReplyAsync("Wurf.");
-                }
-                else
-                {
-                    await ReplyAsync("Go away " + lastFmUserName + ".");
-                }
+                await RespondAsync("Wurf. Borna loves Rijad :)");
+                return;
             }
-            else
-            {
-                await ReplyAsync("No Last.fm user name found. Use !npset <username> to set your Last.fm user name");
-            }
+
+            await RespondAsync($"Go away, @{lastFmUserName}");
         }
 
-        private async Task<string?> GetYoutubeTitle(string details)
+        /// <summary>
+        /// Gets youtube title
+        /// </summary>
+        /// <param name="query">Song name, video name, etc...</param>
+        /// <returns>Youtube title string</returns>
+        private async Task<string?> GetYoutubeTitle(string query)
         {
-            var searchRequest = youtube.Search.List("snippet");
-            searchRequest.Q = details;
+            var searchRequest = _youtubeService.Search.List("snippet");
+            searchRequest.Q = query;
             searchRequest.MaxResults = 5;
 
             var response = await searchRequest.ExecuteAsync();
 
-            var searchResult = response.Items.Where(i => i.Id.Kind == "youtube#video").FirstOrDefault();
+            var searchResult = response.Items.FirstOrDefault(i => i.Id.Kind == "youtube#video");
 
             var title = searchResult?.Snippet.Title;
 
             return title;
         }
 
-        private async Task<string?> GetSpotifyTrack(string link)
+        /// <summary>
+        /// Gets spotify track ID from link
+        /// </summary>
+        /// <param name="link"></param>
+        /// <returns></returns>
+        private async Task<string?> GetSpotifyTrackNameFromLink(string link)
         {
             var spotifyConfig = SpotifyClientConfig
                 .CreateDefault()
                 .WithAuthenticator(
-                    new ClientCredentialsAuthenticator(config["SpotifyId"], config["SpotifySecret"]));
+                    new ClientCredentialsAuthenticator(_configuration["SpotifyId"], _configuration["SpotifySecret"]));
 
             var spotify = new SpotifyClient(spotifyConfig);
 
             var id = link.Split("/").LastOrDefault();
             var idWithoutQueryString = id?.Split("?").FirstOrDefault();
 
-            if(idWithoutQueryString != null)
+            if (idWithoutQueryString != null)
             {
                 id = idWithoutQueryString;
             }
@@ -349,37 +300,85 @@ namespace TuneBot.Modules
             return result;
         }
 
-        private async Task<string?> SearchSpotify(string details)
+        /// <summary>
+        /// Creates message components for a reply message
+        /// </summary>
+        /// <param name="spotifyLink">Spotify link</param>
+        /// <param name="youtubeLink">Youtube link</param>
+        /// <returns>A <see cref="MessageComponent"/> </returns>
+        private MessageComponent? CreateMessageComponentsForReply(string spotifyLink, string youtubeLink, string lastFmLink)
+        {
+            var component =
+                new ComponentBuilder()
+                    .WithButton(url: spotifyLink, label: "Spotify", style: ButtonStyle.Link, emote: Emote.Parse("<:spotify:1131691591623512155>"))
+                    .WithButton(url: youtubeLink, label: "YouTube", style: ButtonStyle.Link, emote: Emote.Parse("<:youtube:1131691587601182900>"))
+                    .WithButton(url: lastFmLink, label: "Last.fm", style: ButtonStyle.Link, emote: Emote.Parse("<:lastfm:1131844112472088607>"))
+                    .Build();
+
+            return component;
+        }
+
+        /// <summary>
+        /// Creates an embed for user display after using an /np or /nps command
+        /// </summary>
+        /// <param name="spotifyTrack">Spotify track object</param>
+        /// <returns>A <see cref="Embed"/></returns>
+        private async Task<Embed?> CreateEmbedAsync(FullTrack spotifyTrack)
+        {
+            var embed = new EmbedBuilder
+            {
+                Title = $"{Context.User.Username} is now listening",
+                Description = $"**{spotifyTrack.Artists.First().Name}**\n{spotifyTrack.Name}",
+                ThumbnailUrl = $"{spotifyTrack.Album.Images.MinBy(x => x.Height).Url}",
+                Color = new Color(0x5c7cfe),
+            }.Build();
+
+            return embed;
+        }
+
+        /// <summary>
+        /// Searches spotify 
+        /// </summary>
+        /// <param name="songName">Song name, Keywords, etc...</param>
+        /// <returns>Full Track Object</returns>
+        private async Task<FullTrack?> SearchSpotifyAsync(string query)
         {
             var spotifyConfig = SpotifyClientConfig
                 .CreateDefault()
                 .WithAuthenticator(
-                    new ClientCredentialsAuthenticator(config["SpotifyId"], config["SpotifySecret"]));
+                    new ClientCredentialsAuthenticator(_configuration["SpotifyId"], _configuration["SpotifySecret"]));
 
             var spotify = new SpotifyClient(spotifyConfig);
 
-            var searchResult = await spotify.Search.Item(new SearchRequest(SearchRequest.Types.Track, details));
-
-            var track = searchResult.Tracks?.Items?.FirstOrDefault();
-
-            var result = track?.ExternalUrls["spotify"];
-
-            return result;
+            try
+            {
+                var searchResult = await spotify.Search.Item(new SearchRequest(SearchRequest.Types.Track, query));
+                var track = searchResult.Tracks?.Items?.FirstOrDefault();
+                return track;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                throw;
+            }
         }
 
-        private async Task<string?> SearchYouTube(string details)
+        /// <summary>
+        /// Searches youtube
+        /// </summary>
+        /// <param name="query">Song name, Video name, etc...</param>
+        /// <returns>YouTube Link</returns>
+        private async Task<string?> SearchYouTubeAndGetLinkAsync(string query)
         {
-            var searchRequest = youtube.Search.List("snippet");
-            searchRequest.Q = details;
+            var searchRequest = _youtubeService.Search.List("snippet");
+            searchRequest.Q = query;
             searchRequest.MaxResults = 5;
 
             var response = await searchRequest.ExecuteAsync();
 
-            var searchResult = response.Items.Where(i => i.Id.Kind == "youtube#video").FirstOrDefault();
+            var searchResult = response.Items.FirstOrDefault(i => i.Id.Kind == "youtube#video");
 
-            return searchResult != null ?
-                    $"https://youtu.be/{searchResult.Id.VideoId}" :
-                    null;
+            return searchResult != null ? $"https://youtu.be/{searchResult.Id.VideoId}" : null;
         }
     }
 }
