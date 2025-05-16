@@ -314,9 +314,9 @@ namespace TuneBot.Modules
         {
             var component =
                 new ComponentBuilder()
-                    .WithButton(url: spotifyLink, label: "Spotify", style: ButtonStyle.Link, emote: Emote.Parse("<:spotify:1131691591623512155>"))
-                    .WithButton(url: youtubeLink, label: "YouTube", style: ButtonStyle.Link, emote: Emote.Parse("<:youtube:1131691587601182900>"))
-                    .WithButton(url: lastFmLink, label: "Last.fm", style: ButtonStyle.Link, emote: Emote.Parse("<:lastfm:1131844112472088607>"))
+                    .WithButton(url: spotifyLink, label: "Spotify", style: ButtonStyle.Link)
+                    .WithButton(url: youtubeLink, label: "YouTube", style: ButtonStyle.Link)
+                    .WithButton(url: lastFmLink, label: "Last.fm", style: ButtonStyle.Link)
                     .Build();
 
             return component;
